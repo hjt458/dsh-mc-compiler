@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No npm dependencies: the plugin runs on Node built-ins, and the tests
+      # stub React/packaging themselves.
+      - name: Syntax check
+        run: |
+          node --check index.js
+          node --check client.js
+          node --check test/host.mjs
+          node --check test/client-harness.cjs
+
+      - name: Host + client tests (no DSH, no JDK)
+        run: npm run test:ci
+
+      # The compile path needs the mod checkout and a JDK, so CI only proves the
+      # skip is clean; a real compile runs in `npm test` on a dev machine.
+      - name: Compile tests are skipped without a checkout
+        run: node test/local.mjs

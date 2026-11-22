@@ -23,7 +23,8 @@
     "locale/en.json",
     "locale/zh.json",
     "tools/McCompileCli.java",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -41,5 +42,9 @@
   },
   "peerDependencies": {
     "react": "^18.2.0"
+  },
+  "scripts": {
+    "test": "node test/host.mjs && node test/client-harness.cjs && node test/local.mjs",
+    "test:ci": "node test/host.mjs && node test/client-harness.cjs"
   }
 }

@@ -1,5 +1,7 @@
 # dsh-mc-compiler
 
+[![CI](https://github.com/hjt458/dsh-mc-compiler/actions/workflows/ci.yml/badge.svg)](https://github.com/hjt458/dsh-mc-compiler/actions/workflows/ci.yml)
+
 A DeepSeek Harness plugin that compiles `.mc` scripts — the embedded DSL of the
 **ProgrammableFurnace** mod — from the GUI sidebar and from an agent tool.
 
@@ -101,3 +103,22 @@ need a restart.
 
 `plugin_manager: remove_bundle` with the package name, or delete the inserted row
 from the profile's `cordis.patch.yml`.
+
+## Tests
+
+```bash
+npm test          # host + client + a real compile (needs the mod checkout and a JDK)
+npm run test:ci   # host + client only, no DSH and no JDK
+```
+
+`test/host.mjs` imports `index.js`, mounts it on a fake ctx, and drives the two
+routes plus the tool: file listing, the foreign-`Host` fence, method guards, the
+path fence, and the "nothing to compile" answer. `test/client-harness.cjs`
+fakes `window.__ModuleLoader__` and `react`, then asserts the sidebar row, the
+main panel key, and the dictionaries. `test/local.mjs` runs a real `javac`/`java`
+compile through the route; it prints `local: skipped` when
+`D:/MODS/ProgrammableFurnace` is absent, so CI can run it safely.
+
+## License
+
+[MIT](LICENSE) © 2026 hjt458
