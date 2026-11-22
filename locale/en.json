@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "MC compiler",
+    "description": "Compile .mc scripts and read their diagnostics in the sidebar.",
+    "detail": "Lists the .mc scripts of a ProgrammableFurnace checkout, compiles them with the mod's own analyzer through a local JDK, and shows each file's state (executable, dependency, failed, blank) with error codes and positions. The same compiler is exposed to the agent as the mc_compile tool."
+  }
+}

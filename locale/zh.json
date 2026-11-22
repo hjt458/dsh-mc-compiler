@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "MC 编译",
+    "description": "在侧边栏编译 .mc 脚本并查看诊断信息。",
+    "detail": "列出 ProgrammableFurnace 工程里的 .mc 脚本，用模组自带的语法分析器经由本机 JDK 编译，并展示每个文件的状态（可执行 / 依赖 / 编译失败 / 空白）与错误码、位置。同一套编译器也以 mc_compile 工具提供给智能体调用。"
+  }
+}

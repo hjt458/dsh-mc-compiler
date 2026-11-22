@@ -1,0 +1,3 @@
+- insert:
+    - id: mc-compiler
+      name: dsh-mc-compiler
