@@ -24,6 +24,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { jarMeta } from './compiler/manifest.js';
+
 /** Stable cordis plugin name (must match the package name). */
 export const name = 'dsh-mc-compiler';
 
@@ -39,12 +41,20 @@ const CLI_SOURCE = path.join(TOOLS_DIR, 'McCompileCli.java');
  * extension builds (see `compiler/PROVENANCE.md`). Present here means no mod
  * checkout and no JDK are required at runtime.
  */
-const BUNDLED_JAR = path.join(here, 'compiler', 'mc-compiler.jar');
+export const BUNDLED_JAR = path.join(here, 'compiler', 'mc-compiler.jar');
 const PROVENANCE_JSON = path.join(here, 'compiler', 'provenance.json');
+
+/** Where the panel remembers the compiler the user picked. */
+const SELECTION_JSON = path.join(here, 'compiler', 'selection.json');
+
+/** Directories scanned for extra compiler jars, relative to the plugin root. */
+const DEFAULT_JAR_DIRS = ['compiler/jars'];
 
 const ROUTES = {
   list: '/api/mc-compiler/list',
   compile: '/api/mc-compiler/compile',
+  compilers: '/api/mc-compiler/compilers',
+  select: '/api/mc-compiler/select',
 };
 
 /** Default script directory: the sample programs shipped by the mod. */
@@ -345,8 +355,8 @@ export async function ensureClasses(config) {
 }
 
 /**
- * Pick the compiler: an explicit `jar`, the bundled jar, or — last resort — a
- * `javac` build from the mod's sources.
+ * Pick the compiler: an explicit `jar`, the jar chosen in the panel, the
+ * bundled jar, or — last resort — a `javac` build from the mod's sources.
  */
 export async function resolveClasspath(config) {
   const configured = typeof config?.jar === 'string' ? config.jar.trim() : '';
@@ -355,10 +365,95 @@ export async function resolveClasspath(config) {
     if (!(await exists(full))) throw new Error(`configured jar not found: ${configured}`);
     return { classpath: full, kind: 'jar' };
   }
+  const selected = await readSelection();
+  if (selected !== '' && (await exists(selected))) {
+    return { classpath: selected, kind: 'selected' };
+  }
   if (await exists(BUNDLED_JAR)) {
     return { classpath: BUNDLED_JAR, kind: 'bundled' };
   }
   return { classpath: await ensureClasses(config), kind: 'source' };
+}
+
+// ---------------------------------------------------------------------------
+// Compiler selection
+// ---------------------------------------------------------------------------
+
+/** Absolute scan directories: the `jars` config, else `compiler/jars`. */
+function compilerDirs(config) {
+  const configured = Array.isArray(config?.jars) ? config.jars : DEFAULT_JAR_DIRS;
+  return configured
+    .filter((entry) => typeof entry === 'string' && entry.trim() !== '')
+    .map((entry) => path.resolve(here, entry.trim()));
+}
+
+/** The jar the panel remembered, or "" while it uses the bundled one. */
+async function readSelection() {
+  try {
+    const parsed = JSON.parse(await fs.readFile(SELECTION_JSON, 'utf8'));
+    // Store/compare absolute paths with native separators, so a hand-written
+    // selection.json with forward slashes still matches the scanned candidate.
+    return typeof parsed?.jar === 'string' && parsed.jar !== '' ? path.resolve(parsed.jar) : '';
+  } catch {
+    return '';
+  }
+}
+
+async function writeSelection(jar) {
+  const body = { jar, updatedAt: new Date().toISOString() };
+  await fs.writeFile(SELECTION_JSON, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
+}
+
+/** Describe one candidate: manifest identity plus what it looks like on disk. */
+function describeJar(jarPath, role) {
+  const meta = jarMeta(jarPath);
+  return {
+    id: jarPath,
+    path: jarPath,
+    name: path.basename(jarPath),
+    role,
+    known: meta.known === true,
+    commit: meta.commit ?? '',
+    builtAt: meta.builtAt ?? '',
+    release: meta.release ?? '',
+    bytes: meta.bytes ?? 0,
+  };
+}
+
+/** Every jar the panel can switch to, bundled first. */
+export async function listCompilers(config = {}) {
+  const dirs = compilerDirs(config);
+  const items = [];
+  if (await exists(BUNDLED_JAR)) items.push(describeJar(BUNDLED_JAR, 'bundled'));
+  for (const dir of dirs) {
+    let names = [];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of names.filter((n) => n.toLowerCase().endsWith('.jar')).sort()) {
+      const full = path.join(dir, entry);
+      if (items.some((item) => item.path === full)) continue;
+      items.push(describeJar(full, 'dir'));
+    }
+  }
+  return { selected: await readSelection(), dirs, items };
+}
+
+/** A jar is usable when it answers a zero-file compile with `[]`. */
+async function probeJar(jarPath, config) {
+  if (!(await exists(jarPath))) return { ok: false, reason: `no such jar: ${jarPath}` };
+  try {
+    const { stdout } = await run(
+      javaBin(config),
+      ['-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-cp', jarPath, 'McCompileCli'],
+      30_000,
+    );
+    return String(stdout).includes('[') ? { ok: true } : { ok: false, reason: 'no JSON output' };
+  } catch (error) {
+    return { ok: false, reason: String(error?.message ?? error).slice(0, 400) };
+  }
 }
 
 /** Compile the given files; returns the CLI's parsed JSON array. */
@@ -421,6 +516,47 @@ function listHandler(ctx, config) {
     } catch (error) {
       warn(ctx, error);
       sendJson(res, 500, { error: String(error?.message ?? error) });
+    }
+  };
+}
+
+function compilersHandler(ctx, config) {
+  return async (req, res) => {
+    if (rejectUntrusted(req, res, ['GET', 'HEAD'])) return;
+    try {
+      sendJson(res, 200, await listCompilers(config));
+    } catch (error) {
+      warn(ctx, error);
+      sendJson(res, 500, { error: String(error?.message ?? error) });
+    }
+  };
+}
+
+function selectHandler(ctx, config) {
+  return async (req, res) => {
+    if (rejectUntrusted(req, res, ['POST'])) return;
+    try {
+      const body = await readBody(req);
+      const wanted = typeof body?.jar === 'string' ? body.jar.trim() : '';
+      const bundled = path.resolve(BUNDLED_JAR);
+      const target = wanted === '' ? bundled : path.resolve(wanted);
+      if (target !== bundled) {
+        const candidates = (await listCompilers(config)).items.map((item) => item.path);
+        if (!candidates.includes(target)) {
+          sendJson(res, 400, { error: 'that jar is not one of the candidates' });
+          return;
+        }
+      }
+      const probe = await probeJar(target, config);
+      if (!probe.ok) {
+        sendJson(res, 400, { error: `this jar cannot run: ${probe.reason}` });
+        return;
+      }
+      await writeSelection(target === bundled ? '' : target);
+      sendJson(res, 200, { selected: target === bundled ? '' : target });
+    } catch (error) {
+      warn(ctx, error);
+      sendJson(res, 400, { error: String(error?.message ?? error) });
     }
   };
 }
@@ -569,6 +705,16 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: ROUTES.compile,
         handler: compileHandler(ctx, config),
+      }),
+      ctx.webServer.register({
+        kind: 'exact',
+        path: ROUTES.compilers,
+        handler: compilersHandler(ctx, config),
+      }),
+      ctx.webServer.register({
+        kind: 'exact',
+        path: ROUTES.select,
+        handler: selectHandler(ctx, config),
       }),
     ];
     return () => {

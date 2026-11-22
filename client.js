@@ -19,6 +19,8 @@ window.__ModuleLoader__.load({
     // so a leading slash would escape the app root on a sub-path deployment.
     const LIST_URL = 'api/mc-compiler/list';
     const COMPILE_URL = 'api/mc-compiler/compile';
+    const COMPILERS_URL = 'api/mc-compiler/compilers';
+    const SELECT_URL = 'api/mc-compiler/select';
 
     const zh = {
       'entry.label': 'MC 编译',
@@ -28,6 +30,9 @@ window.__ModuleLoader__.load({
       'panel.count': '{count} 个文件',
       'panel.refresh': '刷新',
       'panel.compileAll': '编译全部',
+      'panel.compiler': '编译器',
+      'panel.compilerBundled': '内置',
+      'panel.compilerFailed': '这个编译器用不了：{error}',
       'panel.compile': '编译',
       'panel.search': '搜索文件名…',
       'panel.loading': '正在读取目录…',
@@ -56,6 +61,9 @@ window.__ModuleLoader__.load({
       'panel.count': '{count} files',
       'panel.refresh': 'Refresh',
       'panel.compileAll': 'Compile all',
+      'panel.compiler': 'Compiler',
+      'panel.compilerBundled': 'bundled',
+      'panel.compilerFailed': 'This compiler cannot run: {error}',
       'panel.compile': 'Compile',
       'panel.search': 'Search file name…',
       'panel.loading': 'Reading directory…',
@@ -127,6 +135,19 @@ window.__ModuleLoader__.load({
         border: '1px solid rgba(128,128,128,.28)',
       },
       grow: { flex: 1 },
+      compiler: { display: 'inline-flex', alignItems: 'center', gap: 6 },
+      compilerLabel: { ...muted, fontSize: 11 },
+      select: {
+        font: 'inherit',
+        fontSize: 12,
+        padding: '4px 8px',
+        borderRadius: 8,
+        border: '1px solid rgba(128,128,128,.28)',
+        background: 'transparent',
+        color: 'inherit',
+        maxWidth: 260,
+        cursor: 'pointer',
+      },
       ghost: {
         border: '1px solid rgba(128,128,128,.28)',
         background: 'transparent',
@@ -244,7 +265,7 @@ window.__ModuleLoader__.load({
       const load = React.useCallback(async () => {
         setState((previous) => ({ ...previous, status: 'loading', error: '' }));
         try {
-          const response = await fetch(LIST_URL, { headers: { accept: 'application/json' } });
+          const response = await fetch(LIST_URL, { cache: 'no-store', headers: { accept: 'application/json' } });
           if (!response.ok) throw new Error('HTTP ' + response.status);
           const data = await response.json();
           setState({
@@ -265,6 +286,50 @@ window.__ModuleLoader__.load({
         load();
       }, [load]);
       return { ...state, reload: load };
+    }
+
+    /** The jars the host found, plus the ability to switch between them. */
+    function useCompilers() {
+      const [state, setState] = React.useState({ items: [], selected: '', error: '' });
+      const load = React.useCallback(async () => {
+        try {
+          const response = await fetch(COMPILERS_URL, { cache: 'no-store', headers: { accept: 'application/json' } });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          const data = await response.json();
+          setState({
+            items: Array.isArray(data.items) ? data.items : [],
+            selected: String(data.selected || ''),
+            error: '',
+          });
+        } catch (error) {
+          setState({ items: [], selected: '', error: String((error && error.message) || error) });
+        }
+      }, []);
+      React.useEffect(() => {
+        load();
+      }, [load]);
+
+      const choose = React.useCallback(
+        async (jar) => {
+          try {
+            const response = await fetch(SELECT_URL, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', accept: 'application/json' },
+              body: JSON.stringify({ jar }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'HTTP ' + response.status);
+            setState((previous) => ({ ...previous, selected: String(data.selected || ''), error: '' }));
+            return { ok: true };
+          } catch (error) {
+            setState((previous) => ({ ...previous, error: String((error && error.message) || error) }));
+            return { ok: false, error: String((error && error.message) || error) };
+          }
+        },
+        [],
+      );
+
+      return { ...state, reload: load, choose };
     }
 
     /** Compile a set of files (or everything) and merge the results by path. */
@@ -393,9 +458,27 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** "name (bundled) · commit" — enough to tell two jars apart. */
+    function jarLabel(item, t) {
+      const version = item.known ? item.commit : '?';
+      const suffix = item.role === 'bundled' ? ` (${t('panel.compilerBundled')})` : '';
+      return `${item.name}${suffix} · ${version}`;
+    }
+
     function PanelPage() {
       const list = useScripts();
       const compiler = useCompiler();
+      const compilers = useCompilers();
+
+      // A controlled `value` on a <select> is applied before its options are
+      // mounted, so the browser would fall back to the first option. Assign the
+      // value after the commit instead.
+      const selectRef = React.useRef(null);
+      const wanted = compilers.selected !== '' ? compilers.selected : (compilers.items[0] && compilers.items[0].path) || '';
+      React.useEffect(() => {
+        const node = selectRef.current;
+        if (node !== null && node.value !== wanted) node.value = wanted;
+      }, [wanted, compilers.items.length]);
       const [query, setQuery] = React.useState('');
       const [openPath, setOpenPath] = React.useState(null);
 
@@ -451,6 +534,35 @@ window.__ModuleLoader__.load({
           h('h2', { style: styles.title }, t('panel.title')),
           h('span', { style: styles.count }, t('panel.count', { count: list.files.length })),
           h('span', { style: styles.grow }),
+          compilers.items.length > 1
+            ? h(
+                'label',
+                { style: styles.compiler },
+                h('span', { style: styles.compilerLabel }, t('panel.compiler')),
+                h(
+                  'select',
+                  {
+                    ref: selectRef,
+                    onChange: async (event) => {
+                      const wanted = event.target.value;
+                      const outcome = await compilers.choose(wanted);
+                      if (!outcome.ok) return;
+                      await list.reload();
+                      await compiler.compile({ all: true });
+                    },
+                    style: styles.select,
+                    title: t('panel.compiler'),
+                  },
+                  compilers.items.map((item) =>
+                    h(
+                      'option',
+                      { key: item.path, value: item.path },
+                      jarLabel(item, t),
+                    ),
+                  ),
+                ),
+              )
+            : null,
           h(
             'button',
             {

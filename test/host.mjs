@@ -95,7 +95,16 @@ step('mount: routes and tool');
 plugin.apply(ctx, { root: FIXTURES });
 assert.equal(plugin.name, 'dsh-mc-compiler', 'plugin name');
 assert.deepEqual(plugin.inject, ['webServer', 'tools'], 'inject list');
-assert.deepEqual([...routes.keys()].sort(), ['/api/mc-compiler/compile', '/api/mc-compiler/list'], 'both routes');
+assert.deepEqual(
+  [...routes.keys()].sort(),
+  [
+    '/api/mc-compiler/compile',
+    '/api/mc-compiler/compilers',
+    '/api/mc-compiler/list',
+    '/api/mc-compiler/select',
+  ],
+  'four routes',
+);
 assert.equal(tools.length, 1, 'one tool registered');
 assert.equal(tools[0].name, 'mc_compile', 'tool name');
 
@@ -166,6 +175,6 @@ assert.equal(empty.root, path.resolve(FIXTURES), 'tool reports its root');
 /* 7. Disposing the mount removes the routes. */
 step('dispose: routes are released');
 for (const label of effects) assert.ok(typeof label === 'string' && label !== '', 'effect has a label');
-assert.ok(routes.size === 2, 'routes still mounted');
+assert.ok(routes.size === 4, 'four routes still mounted');
 
 console.log('\nhost: ok');

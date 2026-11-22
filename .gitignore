@@ -1,2 +1,4 @@
 node_modules/
 tools/.build/
+compiler/selection.json
+compiler/jars/*.jar
