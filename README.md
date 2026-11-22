@@ -31,7 +31,7 @@ verdict a script gets here is the same one the game will reach.
 | `compiler/mc-compiler.jar` | Prebuilt front end + CLI driver; `provenance.json` records where it came from |
 | `compiler/manifest.js` | Reads `META-INF/MANIFEST.MF` out of a jar in pure Node (zip central directory + `inflateRawSync`) so any copy can name itself |
 | `compiler/jars/` | Drop extra compiler jars here; scanned one level deep |
-| `compiler/selection.json` | Which jar the panel picked (absent = bundled) |
+| `<profile>/data/mc-compiler/selection.json` | Which jar the panel picked (absent = bundled); lives in the profile, not the plugin |
 | `client.js` | Client half: zero-JSX React panel, sidebar row registration (`window.__ModuleLoader__`) |
 | `tools/McCompileCli.java` | Standalone driver for `CompilerAnalyzer`; prints JSON, one entry per file |
 | `cordis.patch.yml` | Inserts this plugin into the profile |
@@ -64,7 +64,7 @@ JDK 25.
 The compiler is picked in this order:
 
 1. **`jar` config** — a jar you point at explicitly.
-2. **The jar picked in the panel** (`compiler/selection.json`) — kept across
+2. **The jar picked in the panel** (`<profile>/data/mc-compiler/selection.json`) — kept across
    restarts; switching is a dropdown in the panel header. A jar is only accepted
    after it answers a zero-file compile, and only if it is one of the candidates
    the plugin lists.

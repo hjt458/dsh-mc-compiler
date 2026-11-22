@@ -45,7 +45,14 @@ export const BUNDLED_JAR = path.join(here, 'compiler', 'mc-compiler.jar');
 const PROVENANCE_JSON = path.join(here, 'compiler', 'provenance.json');
 
 /** Where the panel remembers the compiler the user picked. */
-const SELECTION_JSON = path.join(here, 'compiler', 'selection.json');
+// The picker's memory follows the profile, not the plugin directory: two
+// profiles can run this plugin with different compilers, and reinstalling the
+// plugin must not forget the choice. A checkout without DSH_PROFILE_DIR (tests,
+// plain Node) keeps the file inside the plugin so nothing leaks into $HOME.
+const PROFILE_DIR = typeof process.env.DSH_PROFILE_DIR === 'string' ? process.env.DSH_PROFILE_DIR.trim() : '';
+const LEGACY_SELECTION_JSON = path.join(here, 'compiler', 'selection.json');
+const SELECTION_JSON =
+  PROFILE_DIR !== '' ? path.join(PROFILE_DIR, 'data', 'mc-compiler', 'selection.json') : LEGACY_SELECTION_JSON;
 
 /** Directories scanned for extra compiler jars, relative to the plugin root. */
 const DEFAULT_JAR_DIRS = ['compiler/jars'];
@@ -390,7 +397,12 @@ function compilerDirs(config) {
 /** The jar the panel remembered, or "" while it uses the bundled one. */
 async function readSelection() {
   try {
-    const parsed = JSON.parse(await fs.readFile(SELECTION_JSON, 'utf8'));
+    const parsed = JSON.parse(await fs.readFile(SELECTION_JSON, 'utf8').catch(async (error) => {
+      // Honour a selection written by an older build that kept the file inside
+      // the plugin directory.
+      if (SELECTION_JSON === LEGACY_SELECTION_JSON) throw error;
+      return fs.readFile(LEGACY_SELECTION_JSON, 'utf8');
+    }));
     // Store/compare absolute paths with native separators, so a hand-written
     // selection.json with forward slashes still matches the scanned candidate.
     return typeof parsed?.jar === 'string' && parsed.jar !== '' ? path.resolve(parsed.jar) : '';
@@ -401,7 +413,13 @@ async function readSelection() {
 
 async function writeSelection(jar) {
   const body = { jar, updatedAt: new Date().toISOString() };
+  await fs.mkdir(path.dirname(SELECTION_JSON), { recursive: true });
   await fs.writeFile(SELECTION_JSON, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
+}
+
+/** Absolute path of the picker memory for the running profile. */
+export function selectionPath() {
+  return SELECTION_JSON;
 }
 
 /** Describe one candidate: manifest identity plus what it looks like on disk. */

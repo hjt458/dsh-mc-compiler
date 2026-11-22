@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * Compiler selection: the host lists candidate jars, the panel can switch
- * between them, and the choice lands in `compiler/selection.json`.
+ * between them, and the choice lands in the profile's data directory.
  *
  * Hermetic — no mod checkout, no `javac`. The only requirement is a JRE, since
  * a switched jar is probed with a real (zero-file) compile.
@@ -14,8 +14,12 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(HERE, 'fixtures');
-const SELECTION = path.join(HERE, '..', 'compiler', 'selection.json');
+// A throwaway profile keeps the picker memory out of the real $HOME.
+const PROFILE = await fsp.mkdtemp(path.join(os.tmpdir(), 'mc-profile-'));
+process.env.DSH_PROFILE_DIR = PROFILE;
+const SELECTION = path.join(PROFILE, 'data', 'mc-compiler', 'selection.json');
 const plugin = await import('../index.js');
+assert.equal(plugin.selectionPath(), SELECTION, 'selection lives under the profile');
 
 function step(name) {
   process.stdout.write(`- ${name}\n`);
@@ -174,6 +178,7 @@ try {
 } finally {
   await cleanup();
   await fsp.rm(scratch, { recursive: true, force: true });
+  await fsp.rm(PROFILE, { recursive: true, force: true });
 }
 
 /** Keep the branch readable: the jar path is used verbatim. */
