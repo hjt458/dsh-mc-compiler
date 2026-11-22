@@ -475,7 +475,11 @@ const TOOL_OUTPUT = {
       },
     },
   },
-  render({ results }) {
+  // The host calls `render(args, value)`; keep the fallback so calling it with
+  // the value alone (as in a unit check) still works.
+  render(args, value) {
+    const payload = value && typeof value === 'object' && 'results' in value ? value : args;
+    const results = payload?.results;
     if (!Array.isArray(results) || results.length === 0) {
       return [{ type: 'text', text: '没有编译任何文件。' }];
     }
