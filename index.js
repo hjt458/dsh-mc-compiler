@@ -20,7 +20,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,10 +49,17 @@ const PROVENANCE_JSON = path.join(here, 'compiler', 'provenance.json');
 // profiles can run this plugin with different compilers, and reinstalling the
 // plugin must not forget the choice. A checkout without DSH_PROFILE_DIR (tests,
 // plain Node) keeps the file inside the plugin so nothing leaks into $HOME.
-const PROFILE_DIR = typeof process.env.DSH_PROFILE_DIR === 'string' ? process.env.DSH_PROFILE_DIR.trim() : '';
+const ENV_PROFILE_DIR = typeof process.env.DSH_PROFILE_DIR === 'string' ? process.env.DSH_PROFILE_DIR.trim() : '';
 const LEGACY_SELECTION_JSON = path.join(here, 'compiler', 'selection.json');
-const SELECTION_JSON =
-  PROFILE_DIR !== '' ? path.join(PROFILE_DIR, 'data', 'mc-compiler', 'selection.json') : LEGACY_SELECTION_JSON;
+/** Profile directory owning the picker memory; resolved once in apply(). */
+let profileDir = ENV_PROFILE_DIR;
+
+/** Where the picker memory lives: inside the profile when we know it. */
+export function selectionPath() {
+  return profileDir !== ''
+    ? path.join(profileDir, 'data', 'mc-compiler', 'selection.json')
+    : LEGACY_SELECTION_JSON;
+}
 
 /** Directories scanned for extra compiler jars, relative to the plugin root. */
 const DEFAULT_JAR_DIRS = ['compiler/jars'];
@@ -397,10 +404,11 @@ function compilerDirs(config) {
 /** The jar the panel remembered, or "" while it uses the bundled one. */
 async function readSelection() {
   try {
-    const parsed = JSON.parse(await fs.readFile(SELECTION_JSON, 'utf8').catch(async (error) => {
+    const file = selectionPath();
+    const parsed = JSON.parse(await fs.readFile(file, 'utf8').catch(async (error) => {
       // Honour a selection written by an older build that kept the file inside
       // the plugin directory.
-      if (SELECTION_JSON === LEGACY_SELECTION_JSON) throw error;
+      if (file === LEGACY_SELECTION_JSON) throw error;
       return fs.readFile(LEGACY_SELECTION_JSON, 'utf8');
     }));
     // Store/compare absolute paths with native separators, so a hand-written
@@ -413,13 +421,9 @@ async function readSelection() {
 
 async function writeSelection(jar) {
   const body = { jar, updatedAt: new Date().toISOString() };
-  await fs.mkdir(path.dirname(SELECTION_JSON), { recursive: true });
-  await fs.writeFile(SELECTION_JSON, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
-}
-
-/** Absolute path of the picker memory for the running profile. */
-export function selectionPath() {
-  return SELECTION_JSON;
+  const file = selectionPath();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
 }
 
 /** Describe one candidate: manifest identity plus what it looks like on disk. */
@@ -456,7 +460,9 @@ export async function listCompilers(config = {}) {
       items.push(describeJar(full, 'dir'));
     }
   }
-  return { selected: await readSelection(), dirs, items };
+  // `selection` is where the choice would be stored; handy when a profile looks
+  // like it forgot the picker.
+  return { selected: await readSelection(), selection: selectionPath(), dirs, items };
 }
 
 /** A jar is usable when it answers a zero-file compile with `[]`. */
@@ -715,7 +721,27 @@ function buildTool(config) {
  * `root` (script directory), `sourceRoot` (mod `src/main/java`), `javaBin`,
  * `javacBin`.
  */
+/**
+ * The profile directory this plugin was mounted from. `ctx.baseUrl` is the
+ * loader's base, which for a profile is the profile directory itself; the
+ * `cordis.patch.yml` check keeps a stray base from relocating the memory.
+ */
+function resolveProfileDir(ctx) {
+  if (ENV_PROFILE_DIR !== '') return ENV_PROFILE_DIR;
+  try {
+    const base = typeof ctx.baseUrl === 'string' ? ctx.baseUrl : String(ctx.baseUrl ?? '');
+    if (base === '') return '';
+    const dir = fileURLToPath(new URL('.', base.endsWith('/') ? base : `${base}/`));
+    return existsSync(path.join(dir, 'cordis.patch.yml')) ? dir : '';
+  } catch {
+    return '';
+  }
+}
+
 export function apply(ctx, config = {}) {
+  const detected = resolveProfileDir(ctx);
+  if (detected !== '') profileDir = detected;
+
   ctx.effect(() => {
     const disposers = [
       ctx.webServer.register({ kind: 'exact', path: ROUTES.list, handler: listHandler(ctx, config) }),

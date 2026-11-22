@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * Compiler selection: the host lists candidate jars, the panel can switch
@@ -14,12 +14,14 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(HERE, 'fixtures');
-// A throwaway profile keeps the picker memory out of the real $HOME.
+// A throwaway profile keeps the picker memory out of the real $HOME. The plugin
+// finds it the same way it does in production: through ctx.baseUrl.
 const PROFILE = await fsp.mkdtemp(path.join(os.tmpdir(), 'mc-profile-'));
-process.env.DSH_PROFILE_DIR = PROFILE;
+// Ignore whatever profile the developer's shell is running under.
+delete process.env.DSH_PROFILE_DIR;
+await fsp.writeFile(path.join(PROFILE, 'cordis.patch.yml'), '- name: dsh-mc-compiler\n');
 const SELECTION = path.join(PROFILE, 'data', 'mc-compiler', 'selection.json');
 const plugin = await import('../index.js');
-assert.equal(plugin.selectionPath(), SELECTION, 'selection lives under the profile');
 
 function step(name) {
   process.stdout.write(`- ${name}\n`);
@@ -74,8 +76,10 @@ async function mount(config) {
       },
     },
     tools: { register: () => () => {} },
+    baseUrl: pathToFileURL(`${PROFILE}/`).href,
   };
   plugin.apply(ctx, config);
+  assert.equal(plugin.selectionPath(), SELECTION, 'selection lives under the profile');
   return routes;
 }
 
@@ -175,6 +179,7 @@ try {
   assert.equal(overHttp.status, 200, 'compilers status');
   assert.equal(overHttp.body.items.length, 2, 'both candidates over HTTP');
   assert.equal(overHttp.body.selected, '', 'selection is reported');
+  assert.equal(overHttp.body.selection, SELECTION, 'the payload names the profile file');
 } finally {
   await cleanup();
   await fsp.rm(scratch, { recursive: true, force: true });
