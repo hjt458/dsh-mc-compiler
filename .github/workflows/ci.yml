@@ -9,12 +9,13 @@ on:
 
 jobs:
   test:
-    name: test (Node ${{ matrix.node }})
+    name: test (Node ${{ matrix.node }}, JDK ${{ matrix.java }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         node: [20]
+        java: [17]
     steps:
       - uses: actions/checkout@v4
 
@@ -22,19 +23,24 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      # No npm dependencies: the plugin runs on Node built-ins, and the tests
-      # stub React/packaging themselves.
+      # Only a JRE is needed to run the bundled compiler, and JDK 17 proves the
+      # jar's `--release 17` target. `javac` itself is only used by the fallback.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
       - name: Syntax check
         run: |
           node --check index.js
           node --check client.js
           node --check test/host.mjs
           node --check test/client-harness.cjs
+          node --check test/compile.mjs
 
-      - name: Host + client tests (no DSH, no JDK)
+      - name: Host, client, and bundled-jar compile
         run: npm run test:ci
 
-      # The compile path needs the mod checkout and a JDK, so CI only proves the
-      # skip is clean; a real compile runs in `npm test` on a dev machine.
-      - name: Compile tests are skipped without a checkout
+      # Needs the mod checkout; proves the skip path stays clean on CI.
+      - name: Source-fallback tests are skipped without a checkout
         run: node test/local.mjs

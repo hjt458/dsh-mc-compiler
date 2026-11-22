@@ -87,9 +87,17 @@ const ctx = {
 };
 
 const plugin = await import('../index.js');
+
+step('source fallback: javac still builds the front-end');
+const classes = await plugin.ensureClasses({ sourceRoot, logger: ctx.logger });
+const cli = path.join(classes, 'McCompileCli.class');
+const analyzer = path.join(classes, 'dev', 'programmablefurnace', 'base', 'CompilerAnalyzer.class');
+assert.ok(await fs.access(cli).then(() => true, () => false), 'CLI class built');
+assert.ok(await fs.access(analyzer).then(() => true, () => false), 'front-end classes built');
+
 plugin.apply(ctx, { root: FIXTURES, sourceRoot });
 
-step('compile route: real javac + java');
+step('compile route: bundled jar + real java');
 const response = fakeRes();
 await routes.get('/api/mc-compiler/compile').handler(fakeReq({ paths: ['smelter.mc'] }), response);
 assert.equal(response.statusCode, 200, `status ${response.statusCode}: ${response.body}`);

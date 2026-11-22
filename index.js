@@ -34,6 +34,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const TOOLS_DIR = path.join(here, 'tools');
 const CLI_SOURCE = path.join(TOOLS_DIR, 'McCompileCli.java');
 
+/**
+ * The compiler front-end shipped with the plugin: the same jar the VS Code
+ * extension builds (see `compiler/PROVENANCE.md`). Present here means no mod
+ * checkout and no JDK are required at runtime.
+ */
+const BUNDLED_JAR = path.join(here, 'compiler', 'mc-compiler.jar');
+const PROVENANCE_JSON = path.join(here, 'compiler', 'provenance.json');
+
 const ROUTES = {
   list: '/api/mc-compiler/list',
   compile: '/api/mc-compiler/compile',
@@ -287,7 +295,7 @@ function run(file, args, timeoutMs) {
 }
 
 /** Build the CLI once per distinct compiler-source content, reuse afterwards. */
-async function ensureClasses(config) {
+export async function ensureClasses(config) {
   const sourceRoot = path.resolve(
     typeof config?.sourceRoot === 'string' && config.sourceRoot.trim() !== ''
       ? config.sourceRoot
@@ -336,14 +344,31 @@ async function ensureClasses(config) {
   return outDir;
 }
 
+/**
+ * Pick the compiler: an explicit `jar`, the bundled jar, or — last resort — a
+ * `javac` build from the mod's sources.
+ */
+export async function resolveClasspath(config) {
+  const configured = typeof config?.jar === 'string' ? config.jar.trim() : '';
+  if (configured !== '') {
+    const full = path.resolve(configured);
+    if (!(await exists(full))) throw new Error(`configured jar not found: ${configured}`);
+    return { classpath: full, kind: 'jar' };
+  }
+  if (await exists(BUNDLED_JAR)) {
+    return { classpath: BUNDLED_JAR, kind: 'bundled' };
+  }
+  return { classpath: await ensureClasses(config), kind: 'source' };
+}
+
 /** Compile the given files; returns the CLI's parsed JSON array. */
 async function compilePaths(files, config) {
   if (files.length === 0) return [];
-  const classes = await ensureClasses(config);
+  const { classpath } = await resolveClasspath(config);
   const args = [
     '-Dfile.encoding=UTF-8',
     '-Dstdout.encoding=UTF-8',
-    '-cp', classes,
+    '-cp', classpath,
     'McCompileCli',
     ...files,
   ];

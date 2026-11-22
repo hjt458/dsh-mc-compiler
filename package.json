@@ -1,6 +1,6 @@
 {
   "name": "dsh-mc-compiler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Compile .mc scripts (ProgrammableFurnace mod DSL) from the DeepSeek Harness sidebar and via an agent tool.",
@@ -24,7 +24,10 @@
     "locale/zh.json",
     "tools/McCompileCli.java",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "compiler/mc-compiler.jar",
+    "compiler/provenance.json",
+    "compiler/PROVENANCE.md"
   ],
   "dsh": {
     "bundle": {
@@ -44,7 +47,7 @@
     "react": "^18.2.0"
   },
   "scripts": {
-    "test": "node test/host.mjs && node test/client-harness.cjs && node test/local.mjs",
-    "test:ci": "node test/host.mjs && node test/client-harness.cjs"
+    "test": "node test/host.mjs && node test/client-harness.cjs && node test/compile.mjs && node test/local.mjs",
+    "test:ci": "node test/host.mjs && node test/client-harness.cjs && node test/compile.mjs"
   }
 }

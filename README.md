@@ -5,9 +5,10 @@
 A DeepSeek Harness plugin that compiles `.mc` scripts — the embedded DSL of the
 **ProgrammableFurnace** mod — from the GUI sidebar and from an agent tool.
 
-It does not reimplement the language. It shells out to the mod's own analyzer
-(`dev.programmablefurnace.base.CompilerAnalyzer`), so the verdict a script gets
-here is the same one the game will reach.
+It does not reimplement the language. It runs the mod's own analyzer
+(`dev.programmablefurnace.base.CompilerAnalyzer`) — bundled as
+`compiler/mc-compiler.jar`, so no mod checkout and no JDK are needed — and the
+verdict a script gets here is the same one the game will reach.
 
 ## What you get
 
@@ -23,7 +24,8 @@ here is the same one the game will reach.
 
 | Path | Role |
 | --- | --- |
-| `index.js` | Host half: config, `.mc` discovery, JDK build cache, two HTTP routes, `mc_compile` tool |
+| `index.js` | Host half: config, `.mc` discovery, compiler selection (jar or `javac` fallback), two HTTP routes, `mc_compile` tool |
+| `compiler/mc-compiler.jar` | Prebuilt front end + CLI driver; `provenance.json` records where it came from |
 | `client.js` | Client half: zero-JSX React panel, sidebar row registration (`window.__ModuleLoader__`) |
 | `tools/McCompileCli.java` | Standalone driver for `CompilerAnalyzer`; prints JSON, one entry per file |
 | `cordis.patch.yml` | Inserts this plugin into the profile |
@@ -51,18 +53,33 @@ JDK 25.
 
 ## How compiling works
 
-1. On first use the host compiles the analyzer's front end once
-   (`compiler/lex`, `compiler/syntax`, `compiler/sem`, plus
-   `base/CompilerAnalyzer`, `base/ContentState`, `base/CodeAnalyzer`) into
-   `tools/.build/<sha1-of-selected-sources>/`.
-2. That cache key changes whenever any of those sources changes, so editing the
-   analyzer invalidates it automatically — no manual rebuild step.
-3. `java -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp <cache> McCompileCli <files…>`
-   compiles the requested scripts in one JVM start and prints a JSON array.
-4. The host forwards that array to the panel or to the tool.
+The compiler is picked in this order:
 
-Only the front end is compiled — the analyzer has no Minecraft imports, which is
+1. **`jar` config** — a jar you point at explicitly.
+2. **Bundled `compiler/mc-compiler.jar`** — 93 KB, built from the mod's own
+   front end (`compiler/lex`, `compiler/syntax`, `compiler/sem`, plus
+   `base/CompilerAnalyzer`, `base/ContentState`, `base/CodeAnalyzer`). This is
+   the default, so the plugin works on a machine with **no mod checkout and no
+   JDK** — only a JRE 17+ is needed to run the compiler.
+3. **Compile from sources** — the fallback: `javac` builds the front end into
+   `tools/.build/<sha1-of-sources>/` on first use. The cache key changes when any
+   source changes, so editing the analyzer invalidates it automatically.
+
+Either way the host runs
+`java -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp <jar-or-classes> McCompileCli <files…>`,
+one JVM start per request, and forwards the JSON array to the panel or the tool.
+
+Only the front end is involved — the analyzer has no Minecraft imports, which is
 what makes this possible.
+
+The jar is byte-identical to the one shipped by
+[`vscode-mc-compiler`](https://github.com/hjt458/vscode-mc-compiler) and carries
+its provenance in `compiler/provenance.json` / `compiler/PROVENANCE.md`
+(upstream commit, javac version, source list, SHA-256). To rebuild it:
+
+```bash
+node tools/build-compiler.mjs   # from a vscode-mc-compiler checkout
+```
 
 ## HTTP routes
 
@@ -107,16 +124,18 @@ from the profile's `cordis.patch.yml`.
 ## Tests
 
 ```bash
-npm test          # host + client + a real compile (needs the mod checkout and a JDK)
-npm run test:ci   # host + client only, no DSH and no JDK
+npm test          # everything, including the javac fallback (needs the mod checkout)
+npm run test:ci   # host + client + compile through the bundled jar (needs only a JRE)
 ```
 
 `test/host.mjs` imports `index.js`, mounts it on a fake ctx, and drives the two
 routes plus the tool: file listing, the foreign-`Host` fence, method guards, the
 path fence, and the "nothing to compile" answer. `test/client-harness.cjs`
 fakes `window.__ModuleLoader__` and `react`, then asserts the sidebar row, the
-main panel key, and the dictionaries. `test/local.mjs` runs a real `javac`/`java`
-compile through the route; it prints `local: skipped` when
+main panel key, and the dictionaries. `test/compile.mjs` compiles the fixtures through the bundled jar while pointing
+`sourceRoot` at a directory that does not exist — if the jar were not used, the
+run would fail. `test/local.mjs` builds the front end with `javac` (the fallback)
+and compiles against the real mod checkout; it prints `local: skipped` when
 `D:/MODS/ProgrammableFurnace` is absent, so CI can run it safely.
 
 ## License
