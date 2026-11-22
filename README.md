@@ -19,7 +19,10 @@ verdict a script gets here is the same one the game will reach.
   name, and every diagnostic as `code line:col message`.
 - A **compiler picker** in the panel header: any `*.jar` dropped in
   `compiler/jars/` (or a directory you list) shows up with the commit, build
-  date and size baked into its manifest, and switching is one click.
+  date and size baked into its manifest, and switching is one click. The picker
+  stays visible even with a single compiler (it just goes read-only), hovers to
+  name the profile file that stores the choice, and reports `Switching…` /
+  `Switched` as the pick lands.
 - An agent tool `mc_compile` with the same behaviour, so the model can compile a
   script while editing it and read the diagnostics back.
 

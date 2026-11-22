@@ -1,6 +1,6 @@
 {
   "name": "dsh-mc-compiler",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "description": "Compile .mc scripts (ProgrammableFurnace mod DSL) from the DeepSeek Harness sidebar and via an agent tool.",

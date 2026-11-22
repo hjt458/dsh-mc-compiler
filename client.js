@@ -33,6 +33,9 @@ window.__ModuleLoader__.load({
       'panel.compiler': '编译器',
       'panel.compilerBundled': '内置',
       'panel.compilerFailed': '这个编译器用不了：{error}',
+      'panel.compilerStored': '选择保存在 {path}',
+      'panel.compilerSwitching': '正在切换…',
+      'panel.compilerSwitched': '已切换',
       'panel.compile': '编译',
       'panel.search': '搜索文件名…',
       'panel.loading': '正在读取目录…',
@@ -64,6 +67,9 @@ window.__ModuleLoader__.load({
       'panel.compiler': 'Compiler',
       'panel.compilerBundled': 'bundled',
       'panel.compilerFailed': 'This compiler cannot run: {error}',
+      'panel.compilerStored': 'Choice stored in {path}',
+      'panel.compilerSwitching': 'Switching…',
+      'panel.compilerSwitched': 'Switched',
       'panel.compile': 'Compile',
       'panel.search': 'Search file name…',
       'panel.loading': 'Reading directory…',
@@ -137,6 +143,7 @@ window.__ModuleLoader__.load({
       grow: { flex: 1 },
       compiler: { display: 'inline-flex', alignItems: 'center', gap: 6 },
       compilerLabel: { ...muted, fontSize: 11 },
+      compilerNote: { ...muted, fontSize: 11, marginRight: 8 },
       select: {
         font: 'inherit',
         fontSize: 12,
@@ -459,6 +466,13 @@ window.__ModuleLoader__.load({
     }
 
     /** "name (bundled) · commit" — enough to tell two jars apart. */
+    function shortenPath(value) {
+      const text = String(value || '');
+      const sep = text.includes('\\') ? '\\' : '/';
+      const parts = text.split(/[\\/]+/).filter(Boolean);
+      return parts.length <= 3 ? text : `…${sep}${parts.slice(-3).join(sep)}`;
+    }
+
     function jarLabel(item, t) {
       const version = item.known ? item.commit : '?';
       const suffix = item.role === 'bundled' ? ` (${t('panel.compilerBundled')})` : '';
@@ -480,6 +494,7 @@ window.__ModuleLoader__.load({
         if (node !== null && node.value !== wanted) node.value = wanted;
       }, [wanted, compilers.items.length]);
       const [query, setQuery] = React.useState('');
+      const [switchNote, setSwitchNote] = React.useState('');
       const [openPath, setOpenPath] = React.useState(null);
 
       const visible = React.useMemo(() => {
@@ -534,35 +549,42 @@ window.__ModuleLoader__.load({
           h('h2', { style: styles.title }, t('panel.title')),
           h('span', { style: styles.count }, t('panel.count', { count: list.files.length })),
           h('span', { style: styles.grow }),
-          compilers.items.length > 1
-            ? h(
-                'label',
-                { style: styles.compiler },
-                h('span', { style: styles.compilerLabel }, t('panel.compiler')),
-                h(
-                  'select',
-                  {
-                    ref: selectRef,
-                    onChange: async (event) => {
-                      const wanted = event.target.value;
-                      const outcome = await compilers.choose(wanted);
-                      if (!outcome.ok) return;
-                      await list.reload();
-                      await compiler.compile({ all: true });
-                    },
-                    style: styles.select,
-                    title: t('panel.compiler'),
-                  },
-                  compilers.items.map((item) =>
-                    h(
-                      'option',
-                      { key: item.path, value: item.path },
-                      jarLabel(item, t),
-                    ),
-                  ),
-                ),
-              )
-            : null,
+          switchNote === ''
+            ? null
+            : h('span', { style: styles.compilerNote }, switchNote),
+          h(
+            'label',
+            { style: styles.compiler },
+            h('span', { style: styles.compilerLabel }, t('panel.compiler')),
+            h(
+              'select',
+              {
+                ref: selectRef,
+                onChange: async (event) => {
+                  const wanted = event.target.value;
+                  setSwitchNote(t('panel.compilerSwitching'));
+                  const outcome = await compilers.choose(wanted);
+                  if (!outcome.ok) {
+                    setSwitchNote('');
+                    return;
+                  }
+                  await list.reload();
+                  await compiler.compile({ all: true });
+                  setSwitchNote(t('panel.compilerSwitched'));
+                },
+                style: styles.select,
+                // Hovering names the file the display mirrors, so the panel and
+                // the profile contents never disagree.
+                title: compilers.selection
+                  ? t('panel.compilerStored', { path: compilers.selection })
+                  : t('panel.compiler'),
+                disabled: compilers.items.length < 2,
+              },
+              compilers.items.map((item) =>
+                h('option', { key: item.path, value: item.path }, jarLabel(item, t)),
+              ),
+            ),
+          ),
           h(
             'button',
             {

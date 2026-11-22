@@ -111,10 +111,37 @@ assert.equal(typeof panel.Component, 'function', 'panel has a component');
 process.stdout.write('- locale: dictionaries registered\n');
 assert.equal(dictionaries.length, 1, 'one dictionary bundle');
 const { dicts } = dictionaries[0];
-for (const key of ['entry.label', 'panel.compileAll', 'panel.refresh', 'state.EXECUTABLE']) {
+for (const key of [
+  'entry.label',
+  'panel.compileAll',
+  'panel.refresh',
+  'state.EXECUTABLE',
+  'panel.compiler',
+  'panel.compilerStored',
+  'panel.compilerSwitching',
+  'panel.compilerSwitched',
+]) {
   assert.ok(dicts.zh[key] !== undefined, `zh dictionary has ${key}`);
   assert.ok(dicts.en[key] !== undefined, `en dictionary has ${key}`);
 }
+
+process.stdout.write('- panel: the compiler is always on screen\n');
+assert.ok(
+  dicts.zh['panel.compilerStored'].includes('{path}'),
+  'the stored-choice label names the file',
+);
+const panelSource = require('node:fs').readFileSync(
+  require('node:path').join(__dirname, '..', 'client.js'),
+  'utf8',
+);
+assert.ok(
+  !panelSource.includes('compilers.items.length > 1'),
+  'the picker is not hidden when only one compiler exists',
+);
+assert.ok(
+  panelSource.includes('compilers.items.length < 2'),
+  'the picker is disabled, not hidden, with a single compiler',
+);
 
 process.stdout.write('- effects: labelled for disposal\n');
 assert.ok(effects.length >= 2, `expected labelled effects, got ${effects.length}`);
